@@ -1,4 +1,6 @@
-# tfmodisco-lite
+# tfchrominterp
+
+> This fork aims to produce a global chromatin feature attribution tool
 
 > **Warning**
 > tfmodisco-lite v2.0.0 and above may produce slightly different results from the original TF-MoDISCo code as minor bugs are fixed and some speed improvements required swapping sorting algorithms.

@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+# tf-chrominterp for global chromatin feature attribution
+# Author: Jianyu Yang
+# adapted from code written by and Jacob Schreiber
+
+from typing import List, Literal, Union
+import argparse
+
+import numpy as np
+
+import tfchrominterp
+from tfchrominterp.util import calculate_window_offsets
+
+
+desc = """
+"""
+
+# Read in the arguments
+parser = argparse.ArgumentParser(description=desc)
+subparsers = parser.add_subparsers(help="only have patterns subcommand right now", required=True, dest="cmd")
+
+patterns_parser = subparsers.add_parser("patterns", help="Run TF-ChromInterp", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+patterns_parser.add_argument("-c", "--chromatins", type=str,
+    help="A .npy file containing the chromatin tracks")
+patterns_parser.add_argument("-n", "--max_chromlets", type=int, required=True,
+    help="The maximum number of chromlets per metacluster.")
+patterns_parser.add_argument("-a", "--attributions", type=str,
+    help="A .npy file containing the contribution scores")
+patterns_parser.add_argument("-w", "--window", type=int, default=400,
+    help="The window surrounding the peak center that will be considered")
+patterns_parser.add_argument("-o", "--output", type=str, default="chrominterp_results.h5",
+    help="The path to the output file")
+patterns_parser.add_argument("-v", "--verbose", action="store_true", default=False,
+    help="Controls the amount of output from the code.")
+
+def convert_arg_chroms_to_list(chroms: str) -> Union[List[str], Literal['*']]:
+    """Converts the chroms argument to a list of chromosomes."""
+    if chroms == "*":
+        # Return all chromosome numbers
+        return '*'
+    else:
+        return chroms.split(",")
+
+# Pull the arguments
+args = parser.parse_args()
+
+if args.cmd == "patterns":
+    if args.chromatins[-3:] == 'npy':
+        chromatins = np.load(args.chromatins)
+    elif args.chromatins[-3:] == 'npz':
+        chromatins = np.load(args.chromatins)['arr_0']
+    else:
+        raise Exception("Couldn't recognize the format of the chromatins! It should either end with .npy or .npz")
+
+    if args.attributions[-3:] == 'npy':
+        attributions = np.load(args.attributions)
+    elif args.attributions[-3:] == 'npz':
+        attributions = np.load(args.attributions)['arr_0']
+    else:
+        raise Exception("Couldn't recognize the format of the attributions! It should either end with .npy or .npz")
+
+    center = chromatins.shape[2] // 2
+    start, end = calculate_window_offsets(center, args.window)
+
+    chromatins = chromatins[:, :, start:end].transpose(0, 2, 1)
+    attributions = attributions[:, :, start:end].transpose(0, 2, 1)
+
+    if chromatins.shape[1] < args.window:
+        raise ValueError("Window ({}) cannot be ".format(args.window) +
+            "longer than the chromatins".format(chromatins.shape))
+
+    chromatins = chromatins.astype('float32')
+    attributions = attributions.astype('float32')
+
+    pos_patterns, neg_patterns = tfchrominterp.tfchrominterp.TFChromInterp(
+        contrib_scores=attributions, 
+        chrom_signals=chromatins,
+        max_chromlets_per_metacluster=args.max_chromlets,
+        sliding_window_size=20,
+        flank_size=5,
+        target_chromlet_fdr=0.05,
+        n_leiden_runs=2,
+        verbose=args.verbose)
+
+    modiscolite.io.save_hdf5(args.output, pos_patterns, neg_patterns, args.window)
